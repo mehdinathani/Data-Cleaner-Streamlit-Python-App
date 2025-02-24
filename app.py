@@ -1,125 +1,131 @@
-# imports
+# Imports
 import streamlit as st
 import pandas as pd
 import os
-import io 
 from io import BytesIO
 
-# set up the app
+# Set up the app
 st.set_page_config(page_title="Data Analysis", page_icon=":bar_chart:", layout="wide")
 st.title("Data Analysis")
-st.write("Transform your files from CSV and Excel format with built-in data cleaning and visualisation.")
+st.write("Transform your files from CSV and Excel format with built-in data cleaning and visualization.")
 
-uploaded_files = st.file_uploader("Upload your files (CSV or Excel):", accept_multiple_files=True, type=['CSV', 'xlsx', 'xls'])
+# File Upload
+uploaded_files = st.file_uploader("Upload your files (CSV or Excel):", accept_multiple_files=True, type=['csv', 'xlsx', 'xls'])
 
 if uploaded_files:
     for file in uploaded_files:
         file_ext = os.path.splitext(file.name)[-1].lower()
+        file_key = f"df_{file.name}"
 
-        if file_ext == ".csv":
-            df = pd.read_csv(file)
-        elif file_ext == ".xlsx":
-             df = pd.read_excel(file)
-        else:
-            st.error(f"Unsupported file type: {file_ext}")
+        # Read File
+        try:
+            if file_ext == ".csv":
+                df = pd.read_csv(file)
+            elif file_ext in [".xlsx", ".xls"]:
+                df = pd.read_excel(file, engine="openpyxl")
+            else:
+                st.error(f"Unsupported file type: {file_ext}")
+                continue
+        except Exception as e:
+            st.error(f"Error loading {file.name}: {e}")
             continue
         
-        # display infor about the file
-        st.write("File Information:")
-        st.write(f"File Name: {file.name}")
-        st.write(f"File Type: {file_ext}")
-        st.write(f"Number of Rows: {df.shape[0]}")
-        st.write(f"Number of Columns: {df.shape[1]}")
-        st.write(f"Data Types: {df.dtypes}")
-        st.write(f"Missing Values: {df.isnull().sum()}")
-        st.write(f"Duplicate Rows: {df.duplicated().sum()}")
-        st.write(f"Unique Values: {df.nunique()}")
-        st.write(f"Summary Statistics: {df.describe()}")
-        st.write(f"File Size {file.size/1024:.2f} KB")
+        # Store in session state
+        if file_key not in st.session_state:
+            st.session_state[file_key] = df
+        df = st.session_state[file_key]
 
-        # 5 rows
-        st.write("Preview the head of Data Frame")
+        # File Information
+        st.subheader(f"File Information: {file.name}")
+        st.write(f"- **File Type:** {file_ext}")
+        st.write(f"- **Number of Rows:** {df.shape[0]}")
+        st.write(f"- **Number of Columns:** {df.shape[1]}")
+        st.write(f"- **Data Types:**")
+        st.write(df.dtypes)
+        st.write(f"- **Missing Values:**")
+        st.write(df.isnull().sum())
+        st.write(f"- **Duplicate Rows:** {df.duplicated().sum()}")
+        st.write(f"- **Unique Values per Column:**")
+        st.write(df.nunique())
+        st.write(f"- **Summary Statistics:**")
+        st.write(df.describe())
+        st.write(f"- **File Size:** {file.getbuffer().nbytes / 1024:.2f} KB")
+
+        # Preview Data
+        st.subheader("Preview Data")
         st.write(df.head())
 
+        # Data Cleaning Options
         # Options for Data Cleaning
-        st.subheader("Data Cleaning Options")
-        if st.checkbox(f"Clean Data for {file.name}"):
-            col1, col2 = st.columns(2)
+    st.subheader("Data Cleaning Options")
+    if st.checkbox(f"Clean Data for {file.name}"):
+        col1, col2 = st.columns(2)
 
-            with col1:
-                if st.button(f"Remove Duplicates from {file.name}"):
-                    df.drop_duplicates(inplace=True)
-                    st.write("Duplicates Removed")
+        with col1:
+            if st.button(f"Remove Duplicates from {file.name}"):
+                df = st.session_state[file_key]  # Get the stored dataframe
+                df = df.drop_duplicates()  # Remove duplicates
+                st.session_state[file_key] = df  # Update the session state
+                st.write("✅ Duplicates Removed!")
+                st.write(df.head())  # Display updated DataFrame
 
-            with col2:
-                if st.button(f"Fill Missing Values from {file.name}"):
-                    numaric_cols= df.select_dtypes(include=['number']).columns
-                    df[numaric_cols] = df[numaric_cols].fillna(df[numaric_cols].mean())
-                    st.write("Missing values have been filled!")
+        with col2:
+            if st.button(f"Fill Missing Values from {file.name}"):
+                df = st.session_state[file_key]  # Get stored dataframe
+                numeric_cols = df.select_dtypes(include=['number']).columns  # Select numeric columns
+                df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())  # Fill missing values
+                st.session_state[file_key] = df  # Update session state
+                st.write("✅ Missing values have been filled!")
+                st.write(df.head())  # Display updated DataFrame
 
-        st.subheader("Select Columns to Convert")
-        columns = st.multiselect(f"Choose columns from {file.name}", df.columns, default=df.columns)
-        df = df[columns]
+        # Column Selection
+        st.subheader("Select Columns")
+        try:
+            columns = st.multiselect(f"Choose columns from {file.name}", df.columns, default=df.columns)
+            if columns:
+                st.session_state[file_key] = df[columns]
+                df = st.session_state[file_key]
+            else:
+                st.warning("Please select at least one column.")
+        except Exception as e:
+            st.error(f"Error selecting columns: {e}")
 
-
-        # Create some visualisation
+        # Data Visualization
         st.subheader("Data Visualization")
-        if st.checkbox(f"Show Visualisation for {file.name}"):
-            st.bar_chart(df.select_dtypes(include="number").iloc[:,:2])
-        
-        #  Convert files from or to CSV
-        st.subheader("Conversion Options")
-        conversion_type = st.radio(f"Convert {file.name} to:",["CSV", "Excel"], key=file.name)
+        if st.checkbox(f"Show Visualization for {file.name}"):
+            numeric_df = df.select_dtypes(include="number")
+            if not numeric_df.empty:
+                st.bar_chart(numeric_df.iloc[:, :2])  # Display first two numeric columns
+            else:
+                st.warning("No numeric columns available for visualization.")
+
+        # File Conversion
+        st.subheader("File Conversion")
+        conversion_type = st.radio(f"Convert {file.name} to:", ["CSV", "Excel"], key=file.name)
         if st.button(f"Convert {file.name}"):
             buffer = BytesIO()
-            if conversion_type == "CSV":
-                df.to_csv(buffer, index=False)
-                file_name = file.name.replace(file_ext, ".csv")
-                mime_type = "text/csv"
-            elif conversion_type == "Excel":
-                df.to_excel(buffer, index=False)
-                file_name = file.name.replace(file_ext, ".xlsx")
-                mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            buffer.seek(0)
+            df = st.session_state[file_key]
 
+            try:
+                if conversion_type == "CSV":
+                    df.to_csv(buffer, index=False)
+                    file_name = file.name.replace(file_ext, ".csv")
+                    mime_type = "text/csv"
+                else:
+                    df.to_excel(buffer, index=False, engine="openpyxl")
+                    file_name = file.name.replace(file_ext, ".xlsx")
+                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-            # Download Button
-            st.download_button(
-                label=f"Download {file.name} as {conversion_type}",
-                data=buffer,
-                file_name=file_name,
+                buffer.seek(0)
+                st.download_button(
+                    label=f"Download {file.name} as {conversion_type}",
+                    data=buffer,
+                    file_name=file_name,
+                    mime=mime_type,
+                )
+                st.success(f"{file.name} converted successfully!")
 
+            except Exception as e:
+                st.error(f"Error converting {file.name}: {e}")
 
-            )
-st.success("Thank you for using the Data Analysis App!")
-
-
-
-
-
-
-
-
-
-
-
- 
-
-
-
-
-
-
-
-
-
-
-
-
-        
-
-
-
-
-
-
+st.success("Thank you for using the Data Analysis App! 🚀")
